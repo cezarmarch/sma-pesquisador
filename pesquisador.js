@@ -156,46 +156,29 @@ function montarEmail(pautas, sugestao) {
 async function executarPesquisador(sugestao) {
   console.log('Iniciando pesquisador...', sugestao ? `Sugestão: ${sugestao}` : '');
 
-  if (!sugestao) {
-    await transporter.sendMail({
-      from: `"SMA Pesquisador" <${process.env.EMAIL_REMETENTE}>`,
-      to: process.env.EMAIL_DESTINATARIO,
-      subject: '🔍 SMA — Iniciando pesquisa de pautas. Tem alguma sugestão?',
-      html: `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;">
-          <div style="font-size:10px;letter-spacing:0.2em;color:#c41c1c;text-transform:uppercase;margin-bottom:8px;">SMA Advogados</div>
-          <div style="font-size:20px;font-weight:700;color:#1a1a1a;margin-bottom:16px;">Vou iniciar a pesquisa de pautas da semana.</div>
-          <div style="font-size:14px;color:#444;line-height:1.7;margin-bottom:24px;">
-            Tem algum tema específico que quer priorizar esta semana?<br><br>
-            Responda este email com sua sugestão nos próximos <strong>60 minutos</strong>.<br>
-            Se não receber resposta, inicio a pesquisa automaticamente.
-          </div>
-          <div style="background:#f5f5f5;border-radius:8px;padding:16px;font-size:13px;color:#666;">
-            <strong>Exemplos de sugestão:</strong><br>
-            • "Foca em golpes no Nubank esta semana"<br>
-            • "Quero um post sobre a nova decisão do STJ sobre consignado"<br>
-            • "Prioriza conteúdo de vendas"
-          </div>
-        </div>
-      `
-    });
-
-    console.log('Email de sugestão enviado. Aguardando 60 minutos...');
-    await new Promise(resolve => setTimeout(resolve, 60 * 60 * 1000));
-  }
-
   console.log('Executando pesquisa...');
   const resultado = await pesquisarPautas(sugestao);
   const pautas = resultado.pautas || [];
+  console.log(`Pautas geradas: ${pautas.length}`);
 
-  await transporter.sendMail({
-    from: `"SMA Pesquisador" <${process.env.EMAIL_REMETENTE}>`,
-    to: process.env.EMAIL_DESTINATARIO,
-    subject: `📋 SMA — ${pautas.length} pautas para aprovação — ${new Date().toLocaleDateString('pt-BR')}`,
-    html: montarEmail(pautas, sugestao)
-  });
+  console.log('Preparando envio de email...');
+  console.log('Remetente:', process.env.EMAIL_REMETENTE);
+  console.log('Destinatário:', process.env.EMAIL_DESTINATARIO);
 
-  console.log(`Pesquisa concluída. ${pautas.length} pautas enviadas por email.`);
+  try {
+    await transporter.sendMail({
+      from: `"SMA Pesquisador" <${process.env.EMAIL_REMETENTE}>`,
+      to: process.env.EMAIL_DESTINATARIO,
+      subject: `📋 SMA — ${pautas.length} pautas para aprovação — ${new Date().toLocaleDateString('pt-BR')}`,
+      html: montarEmail(pautas, sugestao)
+    });
+    console.log('Email enviado com sucesso!');
+  } catch (emailErr) {
+    console.error('Erro ao enviar email:', emailErr.message);
+    console.error('Detalhes:', emailErr);
+  }
+
+  console.log('Pesquisa concluída.');
 }
 
 module.exports = { executarPesquisador };
