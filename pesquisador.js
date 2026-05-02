@@ -1,14 +1,6 @@
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true,
-  auth: {
-    user: process.env.EMAIL_REMETENTE,
-    pass: process.env.EMAIL_SENHA_APP
-  }
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 async function pesquisarPautas(sugestao) {
   const sugestaoTexto = sugestao
@@ -42,58 +34,50 @@ Retorne APENAS um JSON válido, sem texto antes ou depois, sem markdown:
       "titulo": "Título chamativo da pauta",
       "tipo": "EDUCATIVO ou VENDAS ou INFORMATIVO",
       "formato": "CARROSSEL ou REEL ou ESTÁTICO",
-      "fonte": "Nome da fonte (STJ, Migalhas, Conjur, G1, Febraban etc)",
-      "data": "Data aproximada da notícia",
-      "resumo": "Resumo em 3 linhas do tema e por que é relevante para o público do SMA",
-      "angulo": "Como transformar isso em post",
-      "cta": "Sugestão de call to action para o post"
+      "fonte": "Nome da fonte",
+      "data": "Data aproximada",
+      "resumo": "Resumo em 3 linhas",
+      "angulo": "Como transformar em post",
+      "cta": "Call to action sugerido"
     }
   ]
 }
 
-Gere entre 5 e 6 pautas, equilibrando os 3 tipos: pelo menos 2 educativos, 2 de vendas e 1 informativo.`;
+Gere 5 pautas equilibrando os 3 tipos.`;
 
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'web-search-2025-03-05'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2000,
-        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': process.env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'web-search-2025-03-05'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2000,
+      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
 
-    const data = await response.json();
-    console.log('Status API:', response.status);
-    console.log('Resposta API:', JSON.stringify(data).substring(0, 800));
+  const data = await response.json();
+  console.log('Status API:', response.status);
+  console.log('Resposta API:', JSON.stringify(data).substring(0, 500));
 
-    if (!data.content || !Array.isArray(data.content)) {
-      throw new Error('Resposta inesperada da API: ' + JSON.stringify(data).substring(0, 200));
-    }
-
-    let rawText = '';
-    for (const block of data.content) {
-      if (block && block.type === 'text') rawText += block.text;
-    }
-
-    console.log('Texto extraído:', rawText.substring(0, 300));
-
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('JSON não encontrado na resposta');
-
-    return JSON.parse(jsonMatch[0]);
-
-  } catch (err) {
-    console.error('Erro na pesquisa:', err.message);
-    throw err;
+  if (!data.content || !Array.isArray(data.content)) {
+    throw new Error('Resposta inesperada: ' + JSON.stringify(data).substring(0, 200));
   }
+
+  let rawText = '';
+  for (const block of data.content) {
+    if (block && block.type === 'text') rawText += block.text;
+  }
+
+  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('JSON não encontrado na resposta');
+
+  return JSON.parse(jsonMatch[0]);
 }
 
 function montarEmail(pautas, sugestao) {
@@ -112,7 +96,7 @@ function montarEmail(pautas, sugestao) {
     return `
       <div style="background:${cor.bg};border-left:4px solid ${cor.borda};border-radius:8px;padding:20px;margin-bottom:16px;">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
-          <span style="background:${cor.badge};color:#fff;border-radius:4px;padding:3px 10px;font-size:11px;font-weight:600;letter-spacing:0.08em;">${p.tipo}</span>
+          <span style="background:${cor.badge};color:#fff;border-radius:4px;padding:3px 10px;font-size:11px;font-weight:600;">${p.tipo}</span>
           <span style="background:#fff;border:1px solid #ddd;border-radius:4px;padding:3px 10px;font-size:11px;color:#666;">${p.formato}</span>
           <span style="font-size:11px;color:#888;margin-left:auto;">${p.fonte} · ${p.data}</span>
         </div>
@@ -137,7 +121,7 @@ function montarEmail(pautas, sugestao) {
     : '';
 
   return `
-    <div style="font-family:'DM Sans',Arial,sans-serif;max-width:680px;margin:0 auto;background:#f5f5f5;padding:24px;">
+    <div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;background:#f5f5f5;padding:24px;">
       <div style="background:#0d0d0d;border-radius:12px 12px 0 0;padding:28px 32px;">
         <div style="font-size:10px;letter-spacing:0.2em;color:#c41c1c;text-transform:uppercase;margin-bottom:6px;">SMA Advogados</div>
         <div style="font-size:22px;font-weight:700;color:#fff;">Pautas da Semana</div>
@@ -145,7 +129,7 @@ function montarEmail(pautas, sugestao) {
       </div>
       <div style="background:#fff;border-radius:0 0 12px 12px;padding:32px;">
         ${sugestaoHtml}
-        <div style="font-size:13px;color:#888;margin-bottom:20px;">${pautas.length} pautas encontradas — responda este email com <strong>APROVAR X</strong> para aprovar (ex: APROVAR 1, 3, 5) ou <strong>TODAS</strong> para aprovar todas.</div>
+        <div style="font-size:13px;color:#888;margin-bottom:20px;">${pautas.length} pautas encontradas — responda este email com <strong>APROVAR X</strong> (ex: APROVAR 1, 3) ou <strong>TODAS</strong> para aprovar todas.</div>
         ${cardsHtml}
         <div style="margin-top:24px;padding-top:20px;border-top:1px solid #eee;font-size:11px;color:#aaa;text-align:center;">
           SMA Advogados · Pipeline de Conteúdo Automático · Niterói/RJ
@@ -157,27 +141,29 @@ function montarEmail(pautas, sugestao) {
 
 async function executarPesquisador(sugestao) {
   console.log('Iniciando pesquisador...', sugestao ? `Sugestão: ${sugestao}` : '');
-
   console.log('Executando pesquisa...');
+
   const resultado = await pesquisarPautas(sugestao);
   const pautas = resultado.pautas || [];
   console.log(`Pautas geradas: ${pautas.length}`);
 
-  console.log('Preparando envio de email...');
-  console.log('Remetente:', process.env.EMAIL_REMETENTE);
-  console.log('Destinatário:', process.env.EMAIL_DESTINATARIO);
+  console.log('Enviando email via Resend...');
 
   try {
-    await transporter.sendMail({
-      from: `"SMA Pesquisador" <${process.env.EMAIL_REMETENTE}>`,
+    const { data, error } = await resend.emails.send({
+      from: 'SMA Pesquisador <onboarding@resend.dev>',
       to: process.env.EMAIL_DESTINATARIO,
       subject: `📋 SMA — ${pautas.length} pautas para aprovação — ${new Date().toLocaleDateString('pt-BR')}`,
       html: montarEmail(pautas, sugestao)
     });
-    console.log('Email enviado com sucesso!');
+
+    if (error) {
+      console.error('Erro Resend:', error);
+    } else {
+      console.log('Email enviado com sucesso! ID:', data.id);
+    }
   } catch (emailErr) {
     console.error('Erro ao enviar email:', emailErr.message);
-    console.error('Detalhes:', emailErr);
   }
 
   console.log('Pesquisa concluída.');
