@@ -2,6 +2,13 @@ const { Resend } = require('resend');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+// Armazena as pautas em memória
+let pautasAtivas = {};
+
+function getPautas() {
+  return pautasAtivas;
+}
+
 async function pesquisarPautas(sugestao) {
   const sugestaoTexto = sugestao
     ? `O editor solicitou atenção especial para: "${sugestao}". Priorize esse tema.`
@@ -80,7 +87,9 @@ Gere 5 pautas equilibrando os 3 tipos.`;
   return JSON.parse(jsonMatch[0]);
 }
 
-function montarEmail(pautas, sugestao) {
+function montarEmail(pautas) {
+  const BASE_URL = process.env.BASE_URL || 'https://sma-pesquisador.onrender.com';
+
   const cores = {
     EDUCATIVO: { bg: '#e8f4fd', borda: '#2980b9', badge: '#2980b9' },
     VENDAS: { bg: '#fdf0e8', borda: '#c41c1c', badge: '#c41c1c' },
@@ -106,19 +115,18 @@ function montarEmail(pautas, sugestao) {
           <div style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:${cor.borda};margin-bottom:4px;">ÂNGULO SUGERIDO</div>
           <div style="font-size:13px;color:#333;">${p.angulo}</div>
         </div>
-        <div style="background:#fff;border-radius:6px;padding:12px;">
+        <div style="background:#fff;border-radius:6px;padding:12px;margin-bottom:16px;">
           <div style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:${cor.borda};margin-bottom:4px;">CALL TO ACTION</div>
           <div style="font-size:13px;color:#333;">${p.cta}</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <a href="${BASE_URL}/aprovar/${i}" style="flex:1;background:#1a6b3a;color:#fff;text-decoration:none;border-radius:8px;padding:12px 16px;font-size:13px;font-weight:600;text-align:center;display:block;">✅ Aprovar</a>
+          <a href="${BASE_URL}/substituir/${i}" style="flex:1;background:#c9a84c;color:#fff;text-decoration:none;border-radius:8px;padding:12px 16px;font-size:13px;font-weight:600;text-align:center;display:block;">🔄 Substituir</a>
+          <a href="${BASE_URL}/descartar/${i}" style="flex:1;background:#888;color:#fff;text-decoration:none;border-radius:8px;padding:12px 16px;font-size:13px;font-weight:600;text-align:center;display:block;">❌ Descartar</a>
         </div>
       </div>
     `;
   }).join('');
-
-  const sugestaoHtml = sugestao
-    ? `<div style="background:#fff8e1;border:1px solid #f9c74f;border-radius:8px;padding:14px;margin-bottom:24px;font-size:13px;color:#555;">
-        <strong>Sugestão sua considerada:</strong> "${sugestao}"
-       </div>`
-    : '';
 
   return `
     <div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;background:#f5f5f5;padding:24px;">
@@ -128,8 +136,7 @@ function montarEmail(pautas, sugestao) {
         <div style="font-size:13px;color:#666;margin-top:4px;">${now}</div>
       </div>
       <div style="background:#fff;border-radius:0 0 12px 12px;padding:32px;">
-        ${sugestaoHtml}
-        <div style="font-size:13px;color:#888;margin-bottom:20px;">${pautas.length} pautas encontradas — responda este email com <strong>APROVAR X</strong> (ex: APROVAR 1, 3) ou <strong>TODAS</strong> para aprovar todas.</div>
+        <div style="font-size:13px;color:#888;margin-bottom:20px;">Clique nos botões abaixo para aprovar, substituir ou descartar cada pauta.</div>
         ${cardsHtml}
         <div style="margin-top:24px;padding-top:20px;border-top:1px solid #eee;font-size:11px;color:#aaa;text-align:center;">
           SMA Advogados · Pipeline de Conteúdo Automático · Niterói/RJ
@@ -137,6 +144,34 @@ function montarEmail(pautas, sugestao) {
       </div>
     </div>
   `;
+}
+
+async function substituirPauta(id, sugestao) {
+  console.log(`Substituindo pauta ${id} por: ${sugestao}`);
+  const resultado = await pesquisarPautas(sugestao);
+  const novasPautas = resultado.pautas || [];
+
+  if (novasPautas.length > 0) {
+    pautasAtivas[id] = { ...novasPautas[0], status: 'pendente' };
+    console.log(`Pauta ${id} substituída por: ${novasPautas[0].titulo}`);
+
+    await resend.emails.send({
+      from: 'SMA Pesquisador <onboarding@resend.dev>',
+      to: process.env.EMAIL_DESTINATARIO,
+      subject: `🔄 SMA — Pauta ${parseInt(id) + 1} substituída`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;">
+          <div style="font-size:10px;letter-spacing:0.2em;color:#c41c1c;text-transform:uppercase;margin-bottom:8px;">SMA Advogados</div>
+          <div style="font-size:18px;font-weight:700;color:#1a1a1a;margin-bottom:16px;">Pauta ${parseInt(id) + 1} substituída com sucesso!</div>
+          <div style="background:#f0fdf4;border-left:4px solid #1a6b3a;border-radius:8px;padding:16px;">
+            <div style="font-size:13px;font-weight:600;color:#1a6b3a;margin-bottom:6px;">Nova pauta:</div>
+            <div style="font-size:15px;font-weight:700;color:#1a1a1a;">${novasPautas[0].titulo}</div>
+            <div style="font-size:13px;color:#444;margin-top:8px;">${novasPautas[0].resumo}</div>
+          </div>
+        </div>
+      `
+    });
+  }
 }
 
 async function executarPesquisador(sugestao) {
@@ -147,6 +182,12 @@ async function executarPesquisador(sugestao) {
   const pautas = resultado.pautas || [];
   console.log(`Pautas geradas: ${pautas.length}`);
 
+  // Salva pautas em memória com status pendente
+  pautasAtivas = {};
+  pautas.forEach((p, i) => {
+    pautasAtivas[i] = { ...p, status: 'pendente' };
+  });
+
   console.log('Enviando email via Resend...');
 
   try {
@@ -154,7 +195,7 @@ async function executarPesquisador(sugestao) {
       from: 'SMA Pesquisador <onboarding@resend.dev>',
       to: process.env.EMAIL_DESTINATARIO,
       subject: `📋 SMA — ${pautas.length} pautas para aprovação — ${new Date().toLocaleDateString('pt-BR')}`,
-      html: montarEmail(pautas, sugestao)
+      html: montarEmail(pautas)
     });
 
     if (error) {
@@ -169,4 +210,4 @@ async function executarPesquisador(sugestao) {
   console.log('Pesquisa concluída.');
 }
 
-module.exports = { executarPesquisador };
+module.exports = { executarPesquisador, substituirPauta, aprovarPauta: () => {}, descartarPauta: () => {}, getPautas };
